@@ -30,9 +30,9 @@ PDF Study Assistant is an innovative tool designed to enhance your study experie
    pip install -r requirements.txt
    ```
 
-4. Set up your OpenAI API key in a `.env` file:
+4. Set up your OpenRouter API key in a `.env` file:
    ```
-   OPENAI_API_KEY=your_api_key_here
+   OPENROUTER_API_KEY=your_api_key_here
    ```
 
 ## Usage
