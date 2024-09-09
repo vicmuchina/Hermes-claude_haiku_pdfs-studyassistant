@@ -1,0 +1,34 @@
+# Virtual environment
+environ/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+
+# PDF files (if you don't want to track them)
+*.pdf
+
+# Log files
+*.log
+
+# Compiled Python files
+*.pyc
+
+# Jupyter Notebook
+.ipynb_checkpoints
