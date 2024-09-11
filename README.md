@@ -1,61 +1,41 @@
-# PDF Study Assistant
 
-PDF Study Assistant is an innovative tool designed to enhance your study experience by leveraging open-source AI technologies. This application provides a powerful assistant to aid you while reading PDFs, offering features like text selection, highlighting, and AI-powered analysis.
+- Load a PDF by clicking the "Browse PDF" button or dragging and dropping a file onto the application window.
+- Use the toolbar buttons to navigate pages, highlight text, and interact with the AI assistant.
+- To chat with the DuckDuckGo AI, start your message with "/chat" followed by your query.
+- To perform a web search, start your message with "/search" followed by your query.
+- LaTeX equations in AI responses will be automatically rendered as images in the chat history.
+- Use the font selection dropdown in the toolbar to customize the chat history font.
 
-## Features
+## AI Interaction Examples
 
-- PDF viewing with page navigation
-- Text selection and copying
-- Text highlighting
-- AI-assisted content analysis
-- Drag and drop PDF loading
-- Customizable UI with resizable panels
-
-## Installation
-
-1. Clone this repository:
+1. Chat with DuckDuckGo AI:
    ```
-   git clone https://github.com/yourusername/pdf-study-assistant.git
-   cd pdf-study-assistant
+   /chat Explain the concept of quantum entanglement
    ```
 
-2. Create a virtual environment and activate it:
+2. Perform a web search:
    ```
-   python -m venv environ
-   source environ/bin/activate  # On Windows, use `environ\Scripts\activate`
-   ```
-
-3. Install the required packages:
-   ```
-   pip install -r requirements.txt
+   /search Latest advancements in renewable energy
    ```
 
-4. Set up your OpenRouter API key in a `.env` file:
-   ```
-   OPENROUTER_API_KEY=your_api_key_here
-   ```
+3. Analyze highlighted text:
+   Highlight a portion of the PDF text and click "Submit Highlighted Text" to get AI analysis.
 
-## Usage
-
-Run the application:
-
-
-Load a PDF by clicking the "Browse PDF" button or dragging and dropping a file onto the application window. Use the toolbar buttons to navigate pages, highlight text, and interact with the AI assistant.
+4. Submit entire PDF for analysis:
+   Click "Submit PDF to AI" to get an overview or summary of the entire document.
 
 ## Future Improvements
 
-1. Web search capability for the AI assistant
+1. Integration with additional AI models and services
 2. Automatic summarization of PDF content
 3. Question generation for self-testing
 4. Multi-language support and translation features
 5. Citation generation for academic use
 6. Integration with note-taking applications
 7. Collaborative study features for group learning
+8. Enhanced LaTeX rendering options and customization
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
