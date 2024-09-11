@@ -25,7 +25,8 @@ from openai import OpenAIError
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PIL import Image, ImageTk
-
+from pix2tex.cli import LatexOCR
+import numpy as np
 
 # Function to get model information from OpenRouter API
 def get_model_info(model_name):
@@ -161,7 +162,11 @@ class PDFStudyAssistant:
         self.is_highlighting = False
         self.highlight_start = None
         self.highlighted_text = ""
+        self.highlight_rectangle = None
+
         self.current_pdf = None
+        self.latex_ocr = LatexOCR()
+
         self.ddgs = DDGS()
         self.chat_model = "claude-3-haiku"  # You can change this to any of the available models
         self.current_page = 0
@@ -637,7 +642,8 @@ class PDFStudyAssistant:
         - event (tk.Event): The mouse button press event
         """
         # Start the highlighting process
-        self.highlight_start = (event.x, event.y)
+        self.highlight_start = self.get_adjusted_coords(event.x, event.y)
+
 
     def update_highlight(self, event):
         """
@@ -651,10 +657,13 @@ class PDFStudyAssistant:
         """
         # Update the highlight rectangle as the user drags the mouse
         if self.highlight_start:
-            self.pdf_canvas.delete("highlight")
             x0, y0 = self.highlight_start
-            x1, y1 = event.x, event.y
-            self.pdf_canvas.create_rectangle(x0, y0, x1, y1, outline="yellow", fill="yellow", stipple="gray50", tags="highlight")
+            x1, y1 = self.get_adjusted_coords(event.x, event.y)
+            if self.highlight_rectangle:
+                self.pdf_canvas.delete(self.highlight_rectangle)
+            self.highlight_rectangle = self.pdf_canvas.create_rectangle(x0, y0, x1, y1, outline="yellow", fill="yellow", stipple="gray50")
+
+
 
     def end_highlight(self, event):
         """
@@ -662,26 +671,58 @@ class PDFStudyAssistant:
 
         This method is called when the user releases the mouse button after
         highlighting text in the PDF viewer. It extracts the highlighted text
-        and submits it to the AI for analysis.
+        and submits it to the AI for analysis. If the highlighted area contains
+        a mathematical equation, it attempts to convert it to LaTeX.
 
         Parameters:
         - event (tk.Event): The mouse button release event
         """
         if self.highlight_start:
             x0, y0 = self.highlight_start
-            x1, y1 = event.x, event.y
+            x1, y1 = self.get_adjusted_coords(event.x, event.y)
             page = self.current_pdf[self.current_page]
             rect = fitz.Rect(min(x0, x1)/self.scale_factor, min(y0, y1)/self.scale_factor, 
                             max(x0, x1)/self.scale_factor, max(y0, y1)/self.scale_factor)
-            words = page.get_text("words")
-            self.highlighted_text = " ".join(w[4] for w in words if fitz.Rect(w[:4]).intersects(rect))
+            
+            # Extract image from the highlighted area
+            pix = page.get_pixmap(matrix=fitz.Matrix(self.scale_factor, self.scale_factor), clip=rect)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            
+            try:
+                # Convert to LaTeX
+                latex = self.latex_ocr(img)
+                
+                if latex:
+                    self.highlighted_text = f"${latex}$"
+                    self.copy_to_clipboard(self.highlighted_text)
+                    messagebox.showinfo("Highlight", "LaTeX expression copied to clipboard!")
+                else:
+                    # If LaTeX conversion fails, fall back to text extraction
+                    words = page.get_text("words", clip=rect)
+                    self.highlighted_text = " ".join(w[4] for w in words)
+                    self.copy_to_clipboard(self.highlighted_text)
+                    messagebox.showinfo("Highlight", "Text copied to clipboard!")
+            except Exception as e:
+                print(f"Error in LaTeX conversion: {str(e)}")
+                # Fall back to text extraction
+                words = page.get_text("words", clip=rect)
+                self.highlighted_text = " ".join(w[4] for w in words)
+                self.copy_to_clipboard(self.highlighted_text)
+                messagebox.showinfo("Highlight", "Error in LaTeX conversion. Copied as text.")
+
             self.highlight_start = None
-        
+            if self.highlight_rectangle:
+                self.pdf_canvas.delete(self.highlight_rectangle)
+                self.highlight_rectangle = None
+
         if self.highlighted_text:
             self.submit_highlight_button.config(state=tk.NORMAL)
-            self.root.clipboard_clear()
-            self.root.clipboard_append(self.highlighted_text)
-            messagebox.showinfo("Highlight", "Text highlighted and copied to clipboard!")
+
+    def copy_to_clipboard(self, text):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.root.update()  # Necessary to finalize the clipboard operation
+        pyperclip.copy(text)  # As a fallback, also use pyperclip
 
     def submit_highlighted_text(self):
         """
@@ -926,6 +967,45 @@ class PDFStudyAssistant:
         except Exception as e:
             print(f"Error performing web search: {str(e)}")
             return [{"title": f"Error performing web search: {str(e)}", "href": ""}]
+    
+    def convert_to_latex(self, text):
+        """
+        Attempts to convert text to LaTeX using pix2tex.
+
+        Parameters:
+        - text (str): The text to convert
+
+        Returns:
+        - str or None: The LaTeX string if conversion was successful, None otherwise
+        """
+        try:
+            latex = self.latex_ocr(text)
+            if latex and latex != text:  # If conversion successful and different from input
+                return latex
+        except Exception as e:
+            print(f"Error converting text to LaTeX: {str(e)}")
+        return None
+
+    def convert_image_to_latex(self, image):
+        """
+        Attempts to convert an image to LaTeX using pix2tex.
+
+        Parameters:
+        - image (PIL.Image): The image to convert
+
+        Returns:
+        - str or None: The LaTeX string if conversion was successful, None otherwise
+        """
+        try:
+            img_byte_arr = io.BytesIO()
+            image.save(img_byte_arr, format='PNG')
+            img_byte_arr = img_byte_arr.getvalue()
+            return self.latex_ocr(img_byte_arr)
+        except Exception as e:
+            print(f"Error converting image to LaTeX: {str(e)}")
+            return None
+
+
 
 def render_latex(latex_string, fontsize=12, dpi=100):
         # Create a figure and axis
@@ -957,257 +1037,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    def ai_worker(self):
-        """
-        Worker function for the AI processing thread.
-
-        This function runs in a separate thread and continuously processes
-        tasks from the AI queue. It handles different types of tasks (highlight,
-        message, pdf) and updates the chat history with AI responses.
-        """
-        while True:
-            # Get a task from the queue
-            task_type, content = self.ai_queue.get()
-            
-            # Process the task based on its type
-            if task_type == "highlight":
-                self.messages.append({"role": "user", "content": f"Analyze this highlighted text: {content}"})
-            elif task_type == "message":
-                self.messages.append({"role": "user", "content": content})
-            elif task_type == "pdf":
-                self.messages.append({"role": "user", "content": f"Here's the full content of the PDF: {content[:9000]}... [truncated]"})
-            elif task_type == "search":
-                self.messages.append({"role": "user", "content": f"Here are the search results: {content}"})
-            
-            # Get the AI's response
-            response = completion(self.messages)
-            self.messages.append({"role": "assistant", "content": response})
-            
-            # Check if the AI response contains a search command
-            if "/search" in response:
-                search_query = response.split("/search", 1)[1].strip()
-                search_results = self.perform_web_search(search_query)
-                result_text = "AI-initiated Search Results:\n"
-                for result in search_results:
-                    result_text += f"- {result['title']}: {result['href']}\n"
-                self.root.after(0, self.update_chat_history, result_text)
-                self.messages.append({"role": "user", "content": result_text})
-                response += f"\n\nI've performed a search for '{search_query}'. Here are the results:\n{result_text}"
-            
-            # Update the chat history in the main thread
-            self.root.after(0, self.update_chat_history, f"AI: {response}\n")
-            
-            # Mark the task as done
-            self.ai_queue.task_done()
-
-    def perform_web_search(self, query, max_results=5):
-        """
-        Performs a web search using DuckDuckGo and returns the results.
-        
-        Args:
-            query (str): The search query.
-            max_results (int): Maximum number of results to return.
-        
-        Returns:
-            list: A list of dictionaries containing search results.
-        """
-        try:
-            results = DDGS().text(query, max_results=max_results)
-            return list(results)  # Convert generator to list
-        except Exception as e:
-            print(f"Error performing web search: {str(e)}")
-            return []
-
-def main():
-    """
-    Main function to run the PDFStudyAssistant application.
-
-    This function creates the root window and initializes the PDFStudyAssistant
-    application, then starts the main event loop.
-    """
-    root = tkdnd.TkinterDnD.Tk()
-    app = PDFStudyAssistant(root)
-    root.mainloop()
-
-if __name__ == "__main__":
-    main()
