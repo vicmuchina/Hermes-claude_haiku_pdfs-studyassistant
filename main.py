@@ -163,6 +163,8 @@ class PDFStudyAssistant:
         self.highlight_start = None
         self.highlighted_text = ""
         self.highlight_rectangle = None
+        self.selection_start = None
+        self.selection_rectangle = None
 
         self.current_pdf = None
         self.latex_ocr = LatexOCR()
@@ -409,8 +411,7 @@ class PDFStudyAssistant:
         Parameters:
         - event (tk.Event): The mouse button press event
         """
-        x, y = self.get_adjusted_coords(event.x, event.y)
-        self.selection_start = (x, y)
+        self.selection_start = self.get_adjusted_coords(event.x, event.y)
 
     def update_selection(self, event):
         """
@@ -423,10 +424,11 @@ class PDFStudyAssistant:
         - event (tk.Event): The mouse motion event
         """
         if self.selection_start:
-            self.pdf_canvas.delete("selection")
             x0, y0 = self.selection_start
             x1, y1 = self.get_adjusted_coords(event.x, event.y)
-            self.pdf_canvas.create_rectangle(x0, y0, x1, y1, outline="blue", tags="selection")
+            if self.selection_rectangle:
+                self.pdf_canvas.delete(self.selection_rectangle)
+            self.selection_rectangle = self.pdf_canvas.create_rectangle(x0, y0, x1, y1, outline="blue", fill="blue", stipple="gray50")
 
     def end_selection(self, event):
         """
@@ -466,16 +468,49 @@ class PDFStudyAssistant:
                 max(x0, x1) / self.scale_factor,  # right (convert larger x to PDF coordinate)
                 max(y0, y1) / self.scale_factor   # bottom (convert larger y to PDF coordinate)
             )
-            self.selected_text = page.get_text("text", clip=rect)
+
+            # Debug print
+            print(f"Selection rectangle: {rect}")
+            print(f"Scale factor: {self.scale_factor}")
             
-            if self.selected_text:
-                self.root.clipboard_clear()
-                self.root.clipboard_append(self.selected_text)
-                messagebox.showinfo("Text Copied", "Selected text has been copied to clipboard!")
+            words = page.get_text("words", clip=rect)
+            text_block = page.get_text("block", clip=rect)
+            text_raw = page.get_text("text", clip=rect)
+
+            # Debug print
+            print(f"Extracted words: {words}")
+            print(f"Extracted text block: {text_block}")
+            print(f"Extracted text raw: {text_raw}")
             
-            print(f"Selected text: {self.selected_text}")
+            
+            selected_text = " ".join(w[4] for w in words)
+            # If no text is extracted, try OCR
+            if not selected_text.strip():
+                # Extract image from the selected area
+                pix = page.get_pixmap(matrix=fitz.Matrix(self.scale_factor, self.scale_factor), clip=rect)
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                
+                # Perform OCR on the image
+                selected_text = pytesseract.image_to_string(img)
+            
+            # Debug print
+            print(f"Selected text: '{selected_text}'")
+            
+            if selected_text.strip():
+                self.copy_to_clipboard(selected_text)
+                messagebox.showinfo("Selection", "Text copied to clipboard!")
+            else:
+                 # Try getting text without clipping
+                full_text = page.get_text("text")
+                print(f"Full page text: {full_text[:100]}...")  # Print first 100 characters
+                messagebox.showinfo("Selection", "No text selected.")
+
             self.selection_start = None
-            self.pdf_canvas.delete("selection")  # Remove the selection rectangle after copying
+            if self.selection_rectangle:
+                self.pdf_canvas.delete(self.selection_rectangle)
+                self.selection_rectangle = None
+
+
 
     def copy_selected_text(self):
         """
@@ -621,7 +656,7 @@ class PDFStudyAssistant:
         self.is_highlighting = not self.is_highlighting
         self.highlight_button.config(text="Stop Highlighting" if self.is_highlighting else "Highlight")
         if self.is_highlighting:
-            self.remove_selection_bindings()  # Remove selection bindings
+            self.remove_selection_bindings()
             self.pdf_canvas.bind("<ButtonPress-1>", self.start_highlight)
             self.pdf_canvas.bind("<B1-Motion>", self.update_highlight)
             self.pdf_canvas.bind("<ButtonRelease-1>", self.end_highlight)
@@ -629,7 +664,9 @@ class PDFStudyAssistant:
             self.pdf_canvas.unbind("<ButtonPress-1>")
             self.pdf_canvas.unbind("<B1-Motion>")
             self.pdf_canvas.unbind("<ButtonRelease-1>")
-            self.setup_selection_bindings()  # Restore selection bindings
+            self.setup_selection_bindings()
+
+
 
     def start_highlight(self, event):
         """
@@ -723,6 +760,9 @@ class PDFStudyAssistant:
         self.root.clipboard_append(text)
         self.root.update()  # Necessary to finalize the clipboard operation
         pyperclip.copy(text)  # As a fallback, also use pyperclip
+        print(f"Copied to clipboard: {text}")  # Debug print
+
+
 
     def submit_highlighted_text(self):
         """
