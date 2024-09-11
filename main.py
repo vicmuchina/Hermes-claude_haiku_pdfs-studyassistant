@@ -827,44 +827,56 @@ class PDFStudyAssistant:
 
         This function runs in a separate thread and continuously processes
         tasks from the AI queue. It handles different types of tasks (highlight,
-        message, pdf, chat) and updates the chat history with AI responses.
+        message, pdf) and updates the chat history with AI responses.
         """
         while True:
+            # Get a task from the queue
             task_type, content = self.ai_queue.get()
             
-            if task_type == "chat":
-                try:
-                    response = self.ddgs.chat(content, model=self.chat_model)
-                    self.root.after(0, self.update_chat_history, f"AI (DuckDuckGo): {response}\n")
-                except Exception as e:
-                    error_message = f"Error in DuckDuckGo chat: {str(e)}"
-                    self.root.after(0, self.update_chat_history, f"AI: {error_message}\n")
-            else:
-                # Process other task types as before
+            try:
+                # Process the task based on its type
                 if task_type == "highlight":
                     self.messages.append({"role": "user", "content": f"Analyze this highlighted text: {content}"})
                 elif task_type == "message":
                     self.messages.append({"role": "user", "content": content})
                 elif task_type == "pdf":
-                    self.messages.append({"role": "user", "content": f"Here's the full content of the PDF: {content[:1000]}... [truncated]"})
+                    self.messages.append({"role": "user", "content": f"Here's the full content of the PDF: {content[:9000]}... [truncated]"})
                 elif task_type == "search":
                     self.messages.append({"role": "user", "content": f"Here are the search results: {content}"})
-                
+            
+                # Get the AI's response
                 response = completion(self.messages)
-                
-                while "/search" in response:
-                    search_query = response.split("/search", 1)[1].strip()
-                    search_results = self.perform_web_search(search_query)
-                    result_text = "Search Results:\n"
-                    for result in search_results:
-                        result_text += f"- {result['title']}: {result['href']}\n"
-                    
-                    self.messages.append({"role": "user", "content": result_text})
-                    response = completion(self.messages)
-                
-                self.root.after(0, self.update_chat_history, f"AI: {response}\n")
                 self.messages.append({"role": "assistant", "content": response})
             
+                # Check if the AI response contains a search command
+                if "/search" in response:
+                    search_query = response.split("/search", 1)[1].strip()
+                    search_results = self.perform_web_search(search_query)
+                    
+                    if search_results:
+                        result_text = "AI-initiated Search Results:\n"
+                        for result in search_results:
+                            if isinstance(result, dict) and 'title' in result and 'href' in result:
+                                result_text += f"- {result['title']}: {result['href']}\n"
+                            else:
+                                result_text += f"- {str(result)}\n"
+                        self.root.after(0, self.update_chat_history, result_text)
+                        self.messages.append({"role": "user", "content": result_text})
+                        response += f"\n\nI've performed a search for '{search_query}'. Here are the results:\n{result_text}"
+                    else:
+                        no_results_message = f"No results found for the search query: '{search_query}'"
+                        self.root.after(0, self.update_chat_history, no_results_message)
+                        self.messages.append({"role": "user", "content": no_results_message})
+                        response += f"\n\n{no_results_message}"
+            
+                # Update the chat history in the main thread
+                self.root.after(0, self.update_chat_history, f"AI: {response}\n")
+            
+            except Exception as e:
+                error_message = f"An unexpected error occurred: {str(e)}"
+                self.root.after(0, self.update_chat_history, f"AI: {error_message}\n")
+            
+            # Mark the task as done
             self.ai_queue.task_done()
 
 
@@ -879,11 +891,16 @@ class PDFStudyAssistant:
             list: A list of dictionaries containing search results.
        """
         try:
-            results = DDGS().text(query, max_results=max_results)
-            return list(results)  # Convert generator to list
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=max_results))
+            
+            if not results:
+                return [{"title": "No results found", "href": ""}]
+            
+            return results
         except Exception as e:
             print(f"Error performing web search: {str(e)}")
-            return []
+            return [{"title": f"Error performing web search: {str(e)}", "href": ""}]
 
 def render_latex(latex_string, fontsize=12, dpi=100):
         # Create a figure and axis
@@ -1113,7 +1130,7 @@ if __name__ == "__main__":
             elif task_type == "message":
                 self.messages.append({"role": "user", "content": content})
             elif task_type == "pdf":
-                self.messages.append({"role": "user", "content": f"Here's the full content of the PDF: {content[:1000]}... [truncated]"})
+                self.messages.append({"role": "user", "content": f"Here's the full content of the PDF: {content[:9000]}... [truncated]"})
             elif task_type == "search":
                 self.messages.append({"role": "user", "content": f"Here are the search results: {content}"})
             
