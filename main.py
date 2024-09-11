@@ -22,6 +22,10 @@ import queue
 from duckduckgo_search import DDGS
 import time
 from openai import OpenAIError
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from PIL import Image, ImageTk
+
 
 # Function to get model information from OpenRouter API
 def get_model_info(model_name):
@@ -147,7 +151,7 @@ class PDFStudyAssistant:
 
         # Initialize conversation with system message
         self.messages = [
-            {"role": "system", "content": "You are a helpful study assistant with the ability to analyze PDF content and answer questions about it. You can also perform web searches to gather additional information. When you need to search the web, simply include '/search [your query]' in your response. For example, if you need to find information about climate change, you could say 'Let me search for more information. /search latest research on climate change'. Use this search capability when you need to provide up-to-date information or when the context from the PDF is insufficient to answer a question comprehensively. If the initial search results don't contain the exact information needed, you can perform a subsequent search using one of the links provided in the previous search results. For instance, you might say 'Let me check one of the provided links for more specific information. /search [link from previous results] [specific query]'. This allows you to dig deeper into reliable sources for more detailed or precise information."}
+            {"role": "system", "content": "You are a helpful study assistant with the ability to analyze PDF content and answer questions about it. You can also perform web searches to gather additional information. When you need to search the web, simply include '/search' followed by your query in your response. For example, if you need to find information about climate change, you could say 'Let me search for more information. /search latest research on climate change'. Use this search capability when you need to provide up-to-date information or when the context from the PDF is insufficient to answer a question comprehensively. If the initial search results don't contain the exact information needed, you can perform a subsequent search using one of the links provided in the previous search results. For instance, you might say 'Let me check one of the provided links for more specific information. /search https://example.com specific query'. This allows you to dig deeper into reliable sources for more detailed or precise information. Remember, do not include square brackets in your search queries."}
         ]
         
         # Initialize various attributes
@@ -158,6 +162,8 @@ class PDFStudyAssistant:
         self.highlight_start = None
         self.highlighted_text = ""
         self.current_pdf = None
+        self.ddgs = DDGS()
+        self.chat_model = "claude-3-haiku"  # You can change this to any of the available models
         self.current_page = 0
         self.page_cache = {}  # (A dictionary to store rendered pages for quick access)
         
@@ -253,6 +259,8 @@ class PDFStudyAssistant:
         # Create a text widget for chat history
         self.chat_history = tk.Text(self.right_panel, wrap=tk.WORD, state='disabled')
         self.chat_history.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.chat_history.images = []
+
 
         # Add a scrollbar for the chat history
         self.chat_scrollbar = ttk.Scrollbar(self.right_panel, orient="vertical", command=self.chat_history.yview)
@@ -711,11 +719,13 @@ class PDFStudyAssistant:
         It retrieves the user's message, adds it to the chat history,
         and submits it to the AI for analysis.
         """
-        # Send user message to AI
         user_message = self.user_input.get()
         self.update_chat_history(f"You: {user_message}\n")
         
-        if user_message.startswith("/search "):
+        if user_message.startswith("/chat "):
+            query = user_message[6:]  # Remove "/chat " from the beginning
+            self.ai_queue.put(("chat", query))
+        elif user_message.startswith("/search "):
             query = user_message[8:]  # Remove "/search " from the beginning
             search_results = self.perform_web_search(query)
             result_text = "Search Results:\n"
@@ -727,6 +737,7 @@ class PDFStudyAssistant:
             self.ai_queue.put(("message", user_message))
         
         self.user_input.delete(0, tk.END)
+
 
     def update_chat_history(self, message):
         """
@@ -741,7 +752,22 @@ class PDFStudyAssistant:
         """
         # Update chat history with new messages
         self.chat_history.config(state='normal')
-        self.chat_history.insert(tk.END, message)
+    
+        # Split the message into parts
+        parts = message.split('$$')
+        
+        for i, part in enumerate(parts):
+                if i % 2 == 0:
+                    # Regular text
+                    self.chat_history.insert(tk.END, part)
+                else:
+                    # LaTeX content
+                    latex_image = render_latex(part)
+                    self.chat_history.image_create(tk.END, image=latex_image)
+                    # Keep a reference to prevent garbage collection
+                    self.chat_history.images.append(latex_image)
+        
+        self.chat_history.insert(tk.END, '\n')
         self.chat_history.config(state='disabled')
         self.chat_history.see(tk.END)
 
@@ -801,49 +827,46 @@ class PDFStudyAssistant:
 
         This function runs in a separate thread and continuously processes
         tasks from the AI queue. It handles different types of tasks (highlight,
-        message, pdf) and updates the chat history with AI responses.
+        message, pdf, chat) and updates the chat history with AI responses.
         """
         while True:
-            # Get a task from the queue
             task_type, content = self.ai_queue.get()
             
-            # Process the task based on its type
-            if task_type == "highlight":
-                self.messages.append({"role": "user", "content": f"Analyze this highlighted text: {content}"})
-            elif task_type == "message":
-                self.messages.append({"role": "user", "content": content})
-            elif task_type == "pdf":
-                self.messages.append({"role": "user", "content": f"Here's the full content of the PDF: {content[:1000]}... [truncated]"})
-            elif task_type == "search":
-                self.messages.append({"role": "user", "content": f"Here are the search results: {content}"})
-            
-            # Get the AI's response
-            response = completion(self.messages)
-
-            # Check if the response is an error message
-            if response.startswith("Error:") or response.startswith("Unexpected error:"):
+            if task_type == "chat":
+                try:
+                    response = self.ddgs.chat(content, model=self.chat_model)
+                    self.root.after(0, self.update_chat_history, f"AI (DuckDuckGo): {response}\n")
+                except Exception as e:
+                    error_message = f"Error in DuckDuckGo chat: {str(e)}"
+                    self.root.after(0, self.update_chat_history, f"AI: {error_message}\n")
+            else:
+                # Process other task types as before
+                if task_type == "highlight":
+                    self.messages.append({"role": "user", "content": f"Analyze this highlighted text: {content}"})
+                elif task_type == "message":
+                    self.messages.append({"role": "user", "content": content})
+                elif task_type == "pdf":
+                    self.messages.append({"role": "user", "content": f"Here's the full content of the PDF: {content[:1000]}... [truncated]"})
+                elif task_type == "search":
+                    self.messages.append({"role": "user", "content": f"Here are the search results: {content}"})
+                
+                response = completion(self.messages)
+                
+                while "/search" in response:
+                    search_query = response.split("/search", 1)[1].strip()
+                    search_results = self.perform_web_search(search_query)
+                    result_text = "Search Results:\n"
+                    for result in search_results:
+                        result_text += f"- {result['title']}: {result['href']}\n"
+                    
+                    self.messages.append({"role": "user", "content": result_text})
+                    response = completion(self.messages)
+                
                 self.root.after(0, self.update_chat_history, f"AI: {response}\n")
-                self.ai_queue.task_done()
-                continue
+                self.messages.append({"role": "assistant", "content": response})
             
-            self.messages.append({"role": "assistant", "content": response})
-
-            # Check if the AI response contains a search command
-            if "/search" in response:
-                search_query = response.split("/search", 1)[1].strip()
-                search_results = self.perform_web_search(search_query)
-                result_text = "AI-initiated Search Results:\n"
-                for result in search_results:
-                    result_text += f"- {result['title']}: {result['href']}\n"
-                self.root.after(0, self.update_chat_history, result_text)
-                self.messages.append({"role": "user", "content": result_text})
-                response += f"\n\nI've performed a search for '{search_query}'. Here are the results:\n{result_text}"
-            
-            # Update the chat history in the main thread
-            self.root.after(0, self.update_chat_history, f"AI: {response}\n")
-            
-            # Mark the task as done
             self.ai_queue.task_done()
+
 
     def perform_web_search(self, query, max_results=5):
         #Performs a web search using DuckDuckGo and returns the results.
@@ -861,6 +884,24 @@ class PDFStudyAssistant:
         except Exception as e:
             print(f"Error performing web search: {str(e)}")
             return []
+
+def render_latex(latex_string, fontsize=12, dpi=100):
+        # Create a figure and axis
+        fig, ax = plt.subplots(figsize=(6, 0.5), dpi=dpi)
+        ax.axis('off')
+        
+        # Render the LaTeX string
+        ax.text(0, 0.5, f'${latex_string}$', fontsize=fontsize, va='center')
+        
+        # Save the figure to a buffer
+        buf = io.BytesIO()
+        fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0.1)
+        plt.close(fig)
+        buf.seek(0)
+        
+        # Create a PhotoImage from the buffer
+        img = Image.open(buf)
+        return ImageTk.PhotoImage(img)
 
 def main():
 
