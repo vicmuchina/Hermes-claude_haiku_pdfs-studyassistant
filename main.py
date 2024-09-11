@@ -1,32 +1,61 @@
 # Import necessary libraries
-import tkinter as tk
+import tkinter as tk  # (GUI toolkit for creating desktop applications)
+# ttk (themed tk) is a module in tkinter that provides access to the Tk themed widget set,
+# offering a more modern and customizable look for GUI elements compared to standard tkinter widgets
 from tkinter import ttk, filedialog, messagebox, font
-import tkinterdnd2 as tkdnd  # For drag and drop functionality
-import fitz  # PyMuPDF for PDF handling
-from PIL import Image, ImageTk  # For image processing
+# Example: ttk.Button(parent, text="Click me") creates a themed button
+import tkinterdnd2 as tkdnd  # (Extension for drag and drop functionality)
+# Example: root.drop_target_register(tkdnd.DND_FILES) enables file drop on a window
+import fitz  # (PyMuPDF library for PDF handling)
+# Example: doc = fitz.open("example.pdf") opens a PDF file
+from PIL import Image, ImageTk  # (Python Imaging Library for image processing)
+# Example: img = Image.open("example.jpg") opens an image file
 import io
 import requests
 from openai import OpenAI
 from os import getenv
-import pytesseract  # For OCR (Optical Character Recognition)
+import pytesseract  # (Optical Character Recognition library)
+# Example: text = pytesseract.image_to_string(Image.open('image.png')) extracts text from an image
 import pyperclip
 import threading
 import queue
 
 # Function to get model information from OpenRouter API
 def get_model_info(model_name):
+    """
+    Retrieves information about a specific AI model from the OpenRouter API.
+    
+    This function sends a GET request (a way to request data from a server) to the OpenRouter API
+    to fetch details about available models. It then searches for the specified model by name
+    and returns its information.
+
+    Parameters:
+    - model_name (str): The name of the AI model to look up
+
+    Returns:
+    - dict or None: A dictionary (a data structure that stores key-value pairs) containing model
+      information if found, None otherwise
+    
+    Example:
+    model_info = get_model_info("gpt-3.5-turbo")
+    if model_info:
+        print(f"Model context length: {model_info['context_length']}")
+    """
+    # Send a GET request to the OpenRouter API
     response = requests.get(
         'https://openrouter.ai/api/v1/models',
         headers={'Authorization': f'Bearer {getenv("OPENROUTER_API_KEY")}'}
     )
     models = response.json()
+    
+    # Search for the specified model in the response
     for model in models['data']:
         if model['id'] == model_name:
             return model
     return None
 
 # Set up OpenAI client with OpenRouter base URL and API key
-model = "mattshumer/reflection-70b:free"
+model = "nousresearch/hermes-3-llama-3.1-405b"
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=getenv("OPENROUTER_API_KEY"),
@@ -38,20 +67,58 @@ max_tokens = model_info['context_length'] if model_info else 131072
 
 # Function to send completion request to the AI model
 def completion(messages):
+    """
+    Sends a completion request to the AI model and returns the response.
+
+    This function uses the OpenAI client (a tool for interacting with the AI model) to create
+    a chat completion based on the provided messages. It then extracts and returns the content
+    of the AI's response.
+
+    Parameters:
+    - messages (list): A list of message dictionaries to send to the AI
+
+    Returns:
+    - str: The content of the AI's response
+    
+    Example:
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What's the capital of France?"}
+    ]
+    response = completion(messages)
+    print(response)  # Outputs: "The capital of France is Paris."
+    """
+    # Create a chat completion using the OpenAI client
     completion = client.chat.completions.create(
         model=model,
         messages=messages,
     )
+    # Extract and return the content of the AI's response
     return completion.choices[0].message.content
 
 # Main application class
 class PDFStudyAssistant:
     def __init__(self, root):
+        """
+        Initializes the PDFStudyAssistant application.
+
+        This method sets up the main window, initializes variables, and creates
+        the initial user interface.
+
+        Parameters:
+        - root (tk.Tk): The root window (main window) of the application
+        
+        Example:
+        root = tk.Tk()
+        app = PDFStudyAssistant(root)
+        """
         self.root = root
         self.root.title("PDF Study Assistant")
         self.root.geometry("1000x600")  # Set a default size
         self.root.pack_propagate(False)  # Prevent automatic resizing
 
+        # Create the main frame (a container for other widgets)
+        # ttk.Frame is a themed container widget used to group other widgets
         self.main_frame = ttk.Frame(self.root)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -59,8 +126,9 @@ class PDFStudyAssistant:
         self.messages = [
             {"role": "system", "content": "You are a helpful study assistant. Analyze the PDF content and answer questions about it."}
         ]
-        self.pdf_canvas = None  # Initialize it as None
-        self.setup_initial_ui()
+        
+        # Initialize various attributes
+        self.pdf_canvas = None  # (A widget for displaying graphics)
         self.line_numbers = None
         self.selected_text = ""
         self.is_highlighting = False
@@ -68,78 +136,124 @@ class PDFStudyAssistant:
         self.highlighted_text = ""
         self.current_pdf = None
         self.current_page = 0
-        self.page_cache = {}
-        self.highlighted_text = ""
-        self.ai_queue = queue.Queue()
+        self.page_cache = {}  # (A dictionary to store rendered pages for quick access)
+        
+        # Set up the initial UI and AI processing queue
+        self.setup_initial_ui()
+        self.ai_queue = queue.Queue()  # (A thread-safe data structure for communication between threads)
         self.start_ai_thread()
 
     def setup_initial_ui(self):
+        """
+        Sets up the initial user interface for the application.
+
+        This method creates the initial frame with buttons and labels for
+        browsing or dragging and dropping a PDF file.
+        
+        Example:
+        self.setup_initial_ui()
+        # This creates the initial UI with a "Browse PDF" button and a drop area
+        """
+        # Create the initial frame (a container for widgets)
         self.initial_frame = ttk.Frame(self.main_frame)
         self.initial_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Add a button to browse for PDF files
+        # ttk.Button creates a themed button widget
         self.browse_button = ttk.Button(self.initial_frame, text="Browse PDF", command=self.browse_pdf)
         self.browse_button.pack(pady=10)
 
+        # Add a label for drag and drop instructions
+        # ttk.Label creates a themed label widget for displaying text
         self.drop_label = ttk.Label(self.initial_frame, text="Or drag and drop PDF here")
         self.drop_label.pack(pady=10)
 
+        # Create a drop area for drag and drop functionality
         self.drop_area = ttk.Frame(self.initial_frame, width=200, height=100, relief="groove", borderwidth=2)
         self.drop_area.pack(pady=10)
 
+        # Register the drop area for drag and drop events
         self.drop_area.drop_target_register(tkdnd.DND_FILES)
         self.drop_area.dnd_bind('<<Drop>>', self.on_drop)
 
     def setup_main_ui(self):
-        # Clear initial UI
+        """
+        Sets up the main user interface of the application.
+
+        This method is called after a PDF is loaded. It creates the PDF viewer,
+        AI chat panel, and various controls for interacting with the PDF and AI.
+        
+        Example:
+        self.setup_main_ui()
+        # This creates the main UI with PDF viewer, chat panel, and controls
+        """
+        # Clear the initial UI
         for widget in self.main_frame.winfo_children():
             widget.destroy()
 
-        # Create a PanedWindow
+        # Create a PanedWindow (a widget that allows resizable panels)
+        # tk.PanedWindow creates a widget with adjustable panes
+        # Create a horizontal PanedWindow containing the PDF viewer and AI chat panel
         self.paned_window = tk.PanedWindow(self.main_frame, orient=tk.HORIZONTAL)
+        # This PanedWindow will contain:
+        # 1. Left panel: PDF viewer with line numbers, canvas, and scrollbar
+        # 2. Right panel: AI chat interface with chat history, input field, and send button
+        # tk.BOTH is used to fill the widget both horizontally and vertically
+        # expand=True allows the widget to grow if extra space is available
+        # Example: This makes the paned_window fill its parent container completely
         self.paned_window.pack(fill=tk.BOTH, expand=True)
 
-        # Left panel for PDF viewer
+        # Set up the left panel for PDF viewing
         self.left_panel = ttk.Frame(self.paned_window)
         self.paned_window.add(self.left_panel, stretch="always")
 
-        # Line numbers on the left
+        # Add line numbers to the left of the PDF viewer
+        # tk.Text creates a text widget for displaying multiple lines of text
         self.line_numbers = tk.Text(self.left_panel, width=4, padx=5, pady=5, state='disabled')
-        self.line_numbers.pack(side=tk.LEFT, fill=tk.Y)
+        self.line_numbers.pack(side=tk.LEFT, fill=tk.Y)  # fill=tk.Y means the widget will expand vertically to fill its container
 
-        # Create pdf_canvas
+        # Create the PDF canvas (a widget for displaying the PDF pages)
+        # tk.Canvas creates a drawing area for graphics and images
         self.pdf_canvas = tk.Canvas(self.left_panel, bg='white')
         self.pdf_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Scrollbar for PDF canvas
+        # Add a scrollbar for the PDF canvas
+        # ttk.Scrollbar creates a themed scrollbar widget
         self.pdf_scrollbar = ttk.Scrollbar(self.left_panel, orient="vertical", command=self.pdf_canvas.yview)
         self.pdf_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.pdf_canvas.configure(yscrollcommand=self.pdf_scrollbar.set)
+        self.pdf_canvas.configure(yscrollcommand=self.pdf_scrollbar.set)  # Connects the scrollbar to the PDF canvas
 
-        # Right panel for AI chat
+        # Set up the right panel for AI chat
         self.right_panel = ttk.Frame(self.paned_window)
         self.paned_window.add(self.right_panel, stretch="always")
         
+        # Create a text widget for chat history
         self.chat_history = tk.Text(self.right_panel, wrap=tk.WORD, state='disabled')
         self.chat_history.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
+        # Add a scrollbar for the chat history
         self.chat_scrollbar = ttk.Scrollbar(self.right_panel, orient="vertical", command=self.chat_history.yview)
         self.chat_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.chat_history.configure(yscrollcommand=self.chat_scrollbar.set)
 
+        # Create an input frame for user messages
         self.input_frame = ttk.Frame(self.right_panel)
         self.input_frame.pack(side=tk.BOTTOM, fill=tk.X)
 
+        # Add an entry widget (a single-line text input field) for user input
+        # ttk.Entry creates a themed single-line texIt input widget
         self.user_input = ttk.Entry(self.input_frame)
         self.user_input.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
 
+        # Add a send button for user messages
         self.send_button = ttk.Button(self.input_frame, text="Send", command=self.send_message)
         self.send_button.pack(side=tk.RIGHT)
 
-        # Toolbar at the bottom
+        # Create a toolbar (a frame with buttons) at the bottom of the window
         self.toolbar = ttk.Frame(self.root)
         self.toolbar.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # Add toolbar buttons here (browse, highlight, submit, etc.)
+        # Add various buttons to the toolbar
         self.browse_button = ttk.Button(self.toolbar, text="Browse PDF", command=self.browse_pdf)
         self.browse_button.pack(side=tk.LEFT, padx=5, pady=5)
 
@@ -165,19 +279,45 @@ class PDFStudyAssistant:
         self.root.drop_target_register(tkdnd.DND_FILES)
         self.root.dnd_bind('<<Drop>>', self.on_drop)
 
-        # Setup selection bindings
+        # Setup selection bindings for text selection in the PDF
         self.setup_selection_bindings()
 
     def setup_selection_bindings(self):
+        """
+        Sets up event bindings for text selection in the PDF.
+
+        This method binds the necessary events to enable text selection and
+        copying in the PDF viewer.
+        
+        Example:
+        self.setup_selection_bindings()
+        # This enables text selection in the PDF viewer
+        """
         self.pdf_canvas.bind("<ButtonPress-1>", self.start_selection)
         self.pdf_canvas.bind("<B1-Motion>", self.update_selection)
         self.pdf_canvas.bind("<ButtonRelease-1>", self.end_selection)
+
     def remove_selection_bindings(self):
+        """
+        Removes event bindings for text selection in the PDF.
+
+        This method unbinds the events that enable text selection and copying
+        in the PDF viewer.
+        """
         self.pdf_canvas.unbind("<ButtonPress-1>")
         self.pdf_canvas.unbind("<B1-Motion>")
         self.pdf_canvas.unbind("<ButtonRelease-1>")
 
     def on_drop(self, event):
+        """
+        Handles the drop event for drag and drop functionality.
+
+        This method is called when a file is dropped onto the drop area. It
+        checks if the dropped file is a PDF and loads it if it is.
+
+        Parameters:
+        - event (tk.Event): The drop event
+        """
         # Handle file drop event
         file_path = event.data
         if file_path.lower().endswith('.pdf'):
@@ -186,10 +326,28 @@ class PDFStudyAssistant:
             messagebox.showerror("Error", "Please drop a PDF file.")
         
     def start_selection(self, event):
+        """
+        Starts the text selection process.
+
+        This method is called when the user presses the mouse button to start
+        selecting text in the PDF viewer.
+
+        Parameters:
+        - event (tk.Event): The mouse button press event
+        """
         x, y = self.get_adjusted_coords(event.x, event.y)
         self.selection_start = (x, y)
 
     def update_selection(self, event):
+        """
+        Updates the text selection rectangle as the user drags the mouse.
+
+        This method is called while the user is dragging the mouse to update
+        the selection rectangle in the PDF viewer.
+
+        Parameters:
+        - event (tk.Event): The mouse motion event
+        """
         if self.selection_start:
             self.pdf_canvas.delete("selection")
             x0, y0 = self.selection_start
@@ -197,12 +355,43 @@ class PDFStudyAssistant:
             self.pdf_canvas.create_rectangle(x0, y0, x1, y1, outline="blue", tags="selection")
 
     def end_selection(self, event):
+        """
+        Ends the text selection process and copies the selected text.
+
+        This method is called when the user releases the mouse button after
+        selecting text in the PDF viewer. It extracts the selected text and
+        copies it to the clipboard.
+
+        Parameters:
+        - event (tk.Event): The mouse button release event
+        """
         if self.selection_start:
             x0, y0 = self.selection_start
             x1, y1 = self.get_adjusted_coords(event.x, event.y)
             page = self.current_pdf[self.current_page]
-            rect = fitz.Rect(min(x0, x1)/self.scale_factor, min(y0, y1)/self.scale_factor, 
-                            max(x0, x1)/self.scale_factor, max(y0, y1)/self.scale_factor)
+            # Create a rectangle (rect) in PDF coordinates
+            # The scale_factor is used to convert from screen coordinates to PDF coordinates
+            #
+            # PDF coordinates:
+            # - Origin (0,0) is at the bottom-left corner of the page
+            # - Units are typically in points (1/72 of an inch)
+            #
+            # Screen coordinates:
+            # - Origin (0,0) is at the top-left corner of the canvas
+            # - Units are in pixels
+            #
+            # The scale_factor represents the ratio of screen pixels to PDF points
+            # For example, if scale_factor is 2, it means 2 screen pixels = 1 PDF point
+            #
+            # We divide by scale_factor to convert from screen coordinates to PDF coordinates:
+            # PDF_coordinate = screen_coordinate / scale_factor
+            
+            rect = fitz.Rect(
+                min(x0, x1) / self.scale_factor,  # left (convert smaller x to PDF coordinate)
+                min(y0, y1) / self.scale_factor,  # top (convert smaller y to PDF coordinate)
+                max(x0, x1) / self.scale_factor,  # right (convert larger x to PDF coordinate)
+                max(y0, y1) / self.scale_factor   # bottom (convert larger y to PDF coordinate)
+            )
             self.selected_text = page.get_text("text", clip=rect)
             
             if self.selected_text:
@@ -215,6 +404,12 @@ class PDFStudyAssistant:
             self.pdf_canvas.delete("selection")  # Remove the selection rectangle after copying
 
     def copy_selected_text(self):
+        """
+        Copies the selected text to the clipboard.
+
+        This method copies the currently selected text in the PDF viewer to
+        the clipboard.
+        """
         if self.selected_text:
             pyperclip.copy(self.selected_text)
             print("Text copied to clipboard")
@@ -223,12 +418,27 @@ class PDFStudyAssistant:
     
 
     def browse_pdf(self):
+        """
+        Opens a file dialog to browse and select a PDF file.
+
+        This method is called when the user clicks the "Browse PDF" button.
+        It opens a file dialog to allow the user to select a PDF file.
+        """
         # Open file dialog to select PDF
         file_path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
         if file_path:
             self.load_pdf(file_path)
 
     def load_pdf(self, file_path):
+        """
+        Loads a PDF file and sets up the main user interface.
+
+        This method is called when a PDF file is selected or dropped. It loads
+        the PDF file, initializes variables, and sets up the main user interface.
+
+        Parameters:
+        - file_path (str): The path to the PDF file
+        """
         try:
             self.current_pdf = fitz.open(file_path)
             self.current_page = 0
@@ -240,33 +450,81 @@ class PDFStudyAssistant:
         except Exception as e:
             messagebox.showerror("Error", f"Error loading PDF: {str(e)}")
 
-        
     def get_adjusted_coords(self, x, y):
+        """
+        Adjusts the mouse coordinates based on the PDF canvas scale.
+
+        This method is used to convert mouse coordinates from the canvas
+        to the PDF page coordinates, taking into account the scale factor.
+
+        Parameters:
+        - x (int): The x-coordinate on the canvas
+        - y (int): The y-coordinate on the canvas
+
+        Returns:
+        - tuple: The adjusted (x, y) coordinates on the PDF page
+        """
         canvas_x = self.pdf_canvas.canvasx(x)
         canvas_y = self.pdf_canvas.canvasy(y)
         return canvas_x, canvas_y
 
     def display_page(self):
+        """
+        Displays the current PDF page on the canvas.
+
+        This method is called when the current page is changed or when the
+        PDF is loaded. It renders the PDF page as an image and displays it
+        on the canvas.
+        """
         if self.current_pdf and self.pdf_canvas:
             if self.current_page in self.page_cache:
                 photo = self.page_cache[self.current_page]
             else:
                 page = self.current_pdf[self.current_page]
-                self.scale_factor = 2  # Increase resolution
+                # Set the scale factor to 2 to increase the resolution of the PDF page
+                self.scale_factor = 2
+
+                # Create a high-resolution pixmap (image) of the PDF page
+                # The fitz.Matrix(2, 2) doubles the resolution in both x and y directions
                 pix = page.get_pixmap(matrix=fitz.Matrix(self.scale_factor, self.scale_factor))
+
+                # Convert the pixmap to a PIL (Python Imaging Library) Image
+                # This step is necessary because Tkinter can't directly use the pixmap
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+                # Convert the PIL Image to a Tkinter-compatible PhotoImage
+                # This is the format that Tkinter can display on the canvas
                 photo = ImageTk.PhotoImage(img)
+
+                # Store the photo in the page cache for faster access in the future
                 self.page_cache[self.current_page] = photo
 
+            # Clear any existing content on the PDF canvas
             self.pdf_canvas.delete("all")
-            self.pdf_canvas.config(scrollregion=(0, 0, photo.width(), photo.height()))
-            self.pdf_canvas.create_image(0, 0, anchor=tk.NW, image=photo)
-            self.pdf_canvas.image = photo  # Keep a reference
 
+            # Set the scrollable region of the canvas to match the size of the photo
+            # This ensures that scrollbars appear if the image is larger than the canvas
+            self.pdf_canvas.config(scrollregion=(0, 0, photo.width(), photo.height()))
+
+            # Place the photo on the canvas at the top-left corner (0, 0)
+            # 'anchor=tk.NW' means the image's northwest (top-left) corner will be at (0, 0)
+            self.pdf_canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+
+            # Store a reference to the photo in the canvas object
+            # This prevents the image from being garbage collected by Python
+            self.pdf_canvas.image = photo
+
+            # Update the line numbers displayed alongside the PDF
             self.update_line_numbers()
 
-
     def update_line_numbers(self):
+        """
+        Updates the line numbers for the current PDF page.
+
+        This method is called when the current page is changed or when the
+        PDF is loaded. It extracts the text from the PDF page and displays
+        the line numbers on the left side of the PDF viewer.
+        """
         # Update line numbers for the current page
         page = self.current_pdf[self.current_page]
         text = page.get_text("text")
@@ -278,6 +536,13 @@ class PDFStudyAssistant:
         self.line_numbers.config(state='disabled')
 
     def toggle_highlight_mode(self):
+        """
+        Toggles the text highlighting mode.
+
+        This method is called when the user clicks the "Highlight" button.
+        It toggles the text highlighting mode and updates the button text
+        accordingly.
+        """
         # Toggle text highlighting mode
         self.is_highlighting = not self.is_highlighting
         self.highlight_button.config(text="Stop Highlighting" if self.is_highlighting else "Highlight")
@@ -293,10 +558,28 @@ class PDFStudyAssistant:
             self.setup_selection_bindings()  # Restore selection bindings
 
     def start_highlight(self, event):
+        """
+        Starts the text highlighting process.
+
+        This method is called when the user presses the mouse button to start
+        highlighting text in the PDF viewer.
+
+        Parameters:
+        - event (tk.Event): The mouse button press event
+        """
         # Start the highlighting process
         self.highlight_start = (event.x, event.y)
 
     def update_highlight(self, event):
+        """
+        Updates the highlight rectangle as the user drags the mouse.
+
+        This method is called while the user is dragging the mouse to update
+        the highlight rectangle in the PDF viewer.
+
+        Parameters:
+        - event (tk.Event): The mouse motion event
+        """
         # Update the highlight rectangle as the user drags the mouse
         if self.highlight_start:
             self.pdf_canvas.delete("highlight")
@@ -305,6 +588,16 @@ class PDFStudyAssistant:
             self.pdf_canvas.create_rectangle(x0, y0, x1, y1, outline="yellow", fill="yellow", stipple="gray50", tags="highlight")
 
     def end_highlight(self, event):
+        """
+        Ends the text highlighting process and submits the highlighted text.
+
+        This method is called when the user releases the mouse button after
+        highlighting text in the PDF viewer. It extracts the highlighted text
+        and submits it to the AI for analysis.
+
+        Parameters:
+        - event (tk.Event): The mouse button release event
+        """
         if self.highlight_start:
             x0, y0 = self.highlight_start
             x1, y1 = event.x, event.y
@@ -322,6 +615,12 @@ class PDFStudyAssistant:
             messagebox.showinfo("Highlight", "Text highlighted and copied to clipboard!")
 
     def submit_highlighted_text(self):
+        """
+        Submits the highlighted text to the AI for analysis.
+
+        This method is called when the user clicks the "Submit Highlighted Text"
+        button. It adds the highlighted text to the AI queue for analysis.
+        """
         # Submit highlighted text to AI for analysis
         if self.highlighted_text:
             self.ai_queue.put(("highlight", self.highlighted_text))
@@ -329,14 +628,28 @@ class PDFStudyAssistant:
             self.submit_highlight_button.config(state=tk.DISABLED)
 
     def submit_pdf_to_ai(self):
+        """
+        Submits the entire PDF content to the AI for analysis.
+
+        This method is called when the user clicks the "Submit PDF to AI"
+        button. It extracts the text from all pages of the PDF and submits
+        it to the AI for analysis.
+        """
         # Submit entire PDF content to AI for analysis
         if self.current_pdf:
             full_text = ""
             for page in self.current_pdf:
-                full_text += page.get_text()
+                full_text += page.get_text()  # Using PyMuPDF (fitz) library to extract text from PDF page
             self.ai_queue.put(("pdf", full_text))
 
     def send_message(self):
+        """
+        Sends a user message to the AI.
+
+        This method is called when the user clicks the "Send" button.
+        It retrieves the user's message, adds it to the chat history,
+        and submits it to the AI for analysis.
+        """
         # Send user message to AI
         user_message = self.user_input.get()
         self.update_chat_history(f"You: {user_message}\n")
@@ -344,6 +657,16 @@ class PDFStudyAssistant:
         self.user_input.delete(0, tk.END)
 
     def update_chat_history(self, message):
+        """
+        Updates the chat history with new messages.
+
+        This method is called when a new message is received from the AI
+        or when the user sends a message. It appends the message to the
+        chat history and scrolls to the bottom.
+
+        Parameters:
+        - message (str): The message to append to the chat history
+        """
         # Update chat history with new messages
         self.chat_history.config(state='normal')
         self.chat_history.insert(tk.END, message)
@@ -351,6 +674,13 @@ class PDFStudyAssistant:
         self.chat_history.see(tk.END)
 
     def toggle_ai_panel(self):
+        """
+        Toggles the visibility of the AI chat panel.
+
+        This method is called when the user clicks the "Toggle AI" button.
+        It hides or shows the AI chat panel and updates the button text
+        accordingly.
+        """
         if self.right_panel.winfo_viewable():
             self.paned_window.forget(self.right_panel)
             self.toggle_ai_button.config(text="Show AI")
@@ -359,20 +689,41 @@ class PDFStudyAssistant:
             self.toggle_ai_button.config(text="Hide AI")
         self.paned_window.update()
 
-        
     def prev_page(self):
+        """
+        Goes to the previous page of the PDF.
+
+        This method is called when the user clicks the "Previous Page" button.
+        It decreases the current page number and displays the new page.
+        """
         # Go to previous page of PDF
         if self.current_page > 0:
             self.current_page -= 1
             self.display_page()
 
     def next_page(self):
+        """
+        Goes to the next page of the PDF.
+
+        This method is called when the user clicks the "Next Page" button.
+        It increases the current page number and displays the new page.
+        """
         # Go to next page of PDF
         if self.current_pdf and self.current_page < len(self.current_pdf) - 1:
             self.current_page += 1
             self.display_page()
 
     def change_font(self, *args):
+        """
+        Changes the font of the chat history.
+
+        This method is called when the user selects a new font or font size
+        from the dropdown menus. It updates the font of the chat history
+        accordingly.
+
+        Parameters:
+        - *args: Variable length argument list (not used)
+        """
         # Change font of chat history
         selected_font = self.font_var.get()
         selected_size = self.font_size_var.get()
@@ -380,13 +731,28 @@ class PDFStudyAssistant:
         self.chat_history.configure(font=new_font)
 
     def start_ai_thread(self):
-        # Start a separate thread for AI processing
+        """
+        Starts a separate thread for AI processing.
+
+        This method creates and starts a daemon thread that runs the ai_worker
+        function, allowing AI processing to occur in the background without
+        blocking the main UI thread.
+        """
         threading.Thread(target=self.ai_worker, daemon=True).start()
 
     def ai_worker(self):
-        # Worker function for AI processing thread
+        """
+        Worker function for the AI processing thread.
+
+        This function runs in a separate thread and continuously processes
+        tasks from the AI queue. It handles different types of tasks (highlight,
+        message, pdf) and updates the chat history with AI responses.
+        """
         while True:
+            # Get a task from the queue
             task_type, content = self.ai_queue.get()
+            
+            # Process the task based on its type
             if task_type == "highlight":
                 self.messages.append({"role": "user", "content": f"Analyze this highlighted text: {content}"})
             elif task_type == "message":
@@ -394,12 +760,23 @@ class PDFStudyAssistant:
             elif task_type == "pdf":
                 self.messages.append({"role": "user", "content": f"Here's the full content of the PDF: {content[:1000]}... [truncated]"})
             
+            # Get the AI's response
             response = completion(self.messages)
             self.messages.append({"role": "assistant", "content": response})
+            
+            # Update the chat history in the main thread
             self.root.after(0, self.update_chat_history, f"AI: {response}\n")
+            
+            # Mark the task as done
             self.ai_queue.task_done()
 
 def main():
+    """
+    Main function to run the PDFStudyAssistant application.
+
+    This function creates the root window and initializes the PDFStudyAssistant
+    application, then starts the main event loop.
+    """
     root = tkdnd.TkinterDnD.Tk()
     app = PDFStudyAssistant(root)
     root.mainloop()
