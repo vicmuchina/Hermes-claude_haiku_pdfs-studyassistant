@@ -19,6 +19,9 @@ import pytesseract  # (Optical Character Recognition library)
 import pyperclip
 import threading
 import queue
+from duckduckgo_search import DDGS
+import time
+from openai import OpenAIError
 
 # Function to get model information from OpenRouter API
 def get_model_info(model_name):
@@ -66,7 +69,7 @@ model_info = get_model_info(model)
 max_tokens = model_info['context_length'] if model_info else 131072
 
 # Function to send completion request to the AI model
-def completion(messages):
+def completion(messages, max_retries=3, retry_delay=5):
     """
     Sends a completion request to the AI model and returns the response.
 
@@ -88,13 +91,33 @@ def completion(messages):
     response = completion(messages)
     print(response)  # Outputs: "The capital of France is Paris."
     """
-    # Create a chat completion using the OpenAI client
-    completion = client.chat.completions.create(
-        model=model,
-        messages=messages,
-    )
-    # Extract and return the content of the AI's response
-    return completion.choices[0].message.content
+    """
+    Sends a completion request to the AI model and returns the response.
+
+    Parameters:
+    - messages (list): A list of message dictionaries to send to the AI
+    - max_retries (int): Maximum number of retry attempts
+    - retry_delay (int): Delay in seconds between retry attempts
+
+    Returns:
+    - str: The content of the AI's response, or an error message
+    """
+    for attempt in range(max_retries):
+        try:
+            completion = client.chat.completions.create(
+                model=model,
+                messages=messages,
+            )
+            return completion.choices[0].message.content
+        except OpenAIError as e:
+            if attempt < max_retries - 1:
+                print(f"Error occurred: {str(e)}. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                return f"Error: Unable to get a response from the AI after {max_retries} attempts. Please try again later."
+        except Exception as e:
+            return f"Unexpected error: {str(e)}"
+
 
 # Main application class
 class PDFStudyAssistant:
@@ -124,7 +147,7 @@ class PDFStudyAssistant:
 
         # Initialize conversation with system message
         self.messages = [
-            {"role": "system", "content": "You are a helpful study assistant. Analyze the PDF content and answer questions about it."}
+            {"role": "system", "content": "You are a helpful study assistant with the ability to analyze PDF content and answer questions about it. You can also perform web searches to gather additional information. When you need to search the web, simply include '/search [your query]' in your response. For example, if you need to find information about climate change, you could say 'Let me search for more information. /search latest research on climate change'. Use this search capability when you need to provide up-to-date information or when the context from the PDF is insufficient to answer a question comprehensively. If the initial search results don't contain the exact information needed, you can perform a subsequent search using one of the links provided in the previous search results. For instance, you might say 'Let me check one of the provided links for more specific information. /search [link from previous results] [specific query]'. This allows you to dig deeper into reliable sources for more detailed or precise information."}
         ]
         
         # Initialize various attributes
@@ -691,7 +714,18 @@ class PDFStudyAssistant:
         # Send user message to AI
         user_message = self.user_input.get()
         self.update_chat_history(f"You: {user_message}\n")
-        self.ai_queue.put(("message", user_message))
+        
+        if user_message.startswith("/search "):
+            query = user_message[8:]  # Remove "/search " from the beginning
+            search_results = self.perform_web_search(query)
+            result_text = "Search Results:\n"
+            for result in search_results:
+                result_text += f"- {result['title']}: {result['href']}\n"
+            self.update_chat_history(result_text)
+            self.ai_queue.put(("search", result_text))
+        else:
+            self.ai_queue.put(("message", user_message))
+        
         self.user_input.delete(0, tk.END)
 
     def update_chat_history(self, message):
@@ -780,16 +814,306 @@ class PDFStudyAssistant:
                 self.messages.append({"role": "user", "content": content})
             elif task_type == "pdf":
                 self.messages.append({"role": "user", "content": f"Here's the full content of the PDF: {content[:1000]}... [truncated]"})
+            elif task_type == "search":
+                self.messages.append({"role": "user", "content": f"Here are the search results: {content}"})
             
             # Get the AI's response
             response = completion(self.messages)
+
+            # Check if the response is an error message
+            if response.startswith("Error:") or response.startswith("Unexpected error:"):
+                self.root.after(0, self.update_chat_history, f"AI: {response}\n")
+                self.ai_queue.task_done()
+                continue
+            
             self.messages.append({"role": "assistant", "content": response})
+
+            # Check if the AI response contains a search command
+            if "/search" in response:
+                search_query = response.split("/search", 1)[1].strip()
+                search_results = self.perform_web_search(search_query)
+                result_text = "AI-initiated Search Results:\n"
+                for result in search_results:
+                    result_text += f"- {result['title']}: {result['href']}\n"
+                self.root.after(0, self.update_chat_history, result_text)
+                self.messages.append({"role": "user", "content": result_text})
+                response += f"\n\nI've performed a search for '{search_query}'. Here are the results:\n{result_text}"
             
             # Update the chat history in the main thread
             self.root.after(0, self.update_chat_history, f"AI: {response}\n")
             
             # Mark the task as done
             self.ai_queue.task_done()
+
+    def perform_web_search(self, query, max_results=5):
+        #Performs a web search using DuckDuckGo and returns the results.
+        
+        """Args:
+            query (str): The search query.
+            max_results (int): Maximum number of results to return.
+        
+        Returns:
+            list: A list of dictionaries containing search results.
+       """
+        try:
+            results = DDGS().text(query, max_results=max_results)
+            return list(results)  # Convert generator to list
+        except Exception as e:
+            print(f"Error performing web search: {str(e)}")
+            return []
+
+def main():
+
+    """ Main function to run the PDFStudyAssistant application.
+    This function creates the root window and initializes the PDFStudyAssistant
+    application, then starts the main event loop."""
+    root = tkdnd.TkinterDnD.Tk()
+    app = PDFStudyAssistant(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    def ai_worker(self):
+        """
+        Worker function for the AI processing thread.
+
+        This function runs in a separate thread and continuously processes
+        tasks from the AI queue. It handles different types of tasks (highlight,
+        message, pdf) and updates the chat history with AI responses.
+        """
+        while True:
+            # Get a task from the queue
+            task_type, content = self.ai_queue.get()
+            
+            # Process the task based on its type
+            if task_type == "highlight":
+                self.messages.append({"role": "user", "content": f"Analyze this highlighted text: {content}"})
+            elif task_type == "message":
+                self.messages.append({"role": "user", "content": content})
+            elif task_type == "pdf":
+                self.messages.append({"role": "user", "content": f"Here's the full content of the PDF: {content[:1000]}... [truncated]"})
+            elif task_type == "search":
+                self.messages.append({"role": "user", "content": f"Here are the search results: {content}"})
+            
+            # Get the AI's response
+            response = completion(self.messages)
+            self.messages.append({"role": "assistant", "content": response})
+            
+            # Check if the AI response contains a search command
+            if "/search" in response:
+                search_query = response.split("/search", 1)[1].strip()
+                search_results = self.perform_web_search(search_query)
+                result_text = "AI-initiated Search Results:\n"
+                for result in search_results:
+                    result_text += f"- {result['title']}: {result['href']}\n"
+                self.root.after(0, self.update_chat_history, result_text)
+                self.messages.append({"role": "user", "content": result_text})
+                response += f"\n\nI've performed a search for '{search_query}'. Here are the results:\n{result_text}"
+            
+            # Update the chat history in the main thread
+            self.root.after(0, self.update_chat_history, f"AI: {response}\n")
+            
+            # Mark the task as done
+            self.ai_queue.task_done()
+
+    def perform_web_search(self, query, max_results=5):
+        """
+        Performs a web search using DuckDuckGo and returns the results.
+        
+        Args:
+            query (str): The search query.
+            max_results (int): Maximum number of results to return.
+        
+        Returns:
+            list: A list of dictionaries containing search results.
+        """
+        try:
+            results = DDGS().text(query, max_results=max_results)
+            return list(results)  # Convert generator to list
+        except Exception as e:
+            print(f"Error performing web search: {str(e)}")
+            return []
 
 def main():
     """
