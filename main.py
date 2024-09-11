@@ -704,12 +704,37 @@ class PDFStudyAssistant:
         button. It extracts the text from all pages of the PDF and submits
         it to the AI for analysis.
         """
-        # Submit entire PDF content to AI for analysis
         if self.current_pdf:
+            total_pages = len(self.current_pdf)
+            pages_to_submit = []
+
+            # Add the current page
+            pages_to_submit.append(self.current_page)
+
+            # Add the last two pages if they exist and are different from the current page
+            if total_pages > 1:
+                if self.current_page != total_pages - 1:
+                    pages_to_submit.append(total_pages - 1)
+                if total_pages > 2 and self.current_page != total_pages - 2:
+                    pages_to_submit.append(total_pages - 2)
+
+            # Remove duplicates and sort
+            pages_to_submit = sorted(set(pages_to_submit))
+
             full_text = ""
-            for page in self.current_pdf:
-                full_text += page.get_text()  # Using PyMuPDF (fitz) library to extract text from PDF page
+            for page_num in pages_to_submit:
+                page = self.current_pdf[page_num]
+                full_text += f"Page {page_num + 1}:\n{page.get_text()}\n\n"
+
+            # Truncate the text if it's too long
+            max_chars = 8000  # Adjust this value as needed
+            if len(full_text) > max_chars:
+                full_text = full_text[:max_chars] + "... [truncated]"
+
             self.ai_queue.put(("pdf", full_text))
+            messagebox.showinfo("PDF Submitted", "The content of the current page and the last two pages (if available) has been submitted to the AI for analysis.")
+        else:
+            messagebox.showerror("Error", "No PDF is currently loaded.")
 
     def send_message(self):
         """
