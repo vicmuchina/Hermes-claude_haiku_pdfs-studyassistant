@@ -2,7 +2,7 @@
 import tkinter as tk  # (GUI toolkit for creating desktop applications)
 # ttk (themed tk) is a module in tkinter that provides access to the Tk themed widget set,
 # offering a more modern and customizable look for GUI elements compared to standard tkinter widgets
-from tkinter import ttk, filedialog, messagebox, font
+from tkinter import ttk, filedialog, messagebox, font as tkfont
 # Example: ttk.Button(parent, text="Click me") creates a themed button
 import tkinterdnd2 as tkdnd  # (Extension for drag and drop functionality)
 # Example: root.drop_target_register(tkdnd.DND_FILES) enables file drop on a window
@@ -275,12 +275,50 @@ class PDFStudyAssistant:
         self.toggle_ai_button = ttk.Button(self.toolbar, text="Toggle AI", command=self.toggle_ai_panel)
         self.toggle_ai_button.pack(side=tk.RIGHT, padx=5, pady=5)
 
+        # Add font selection options
+        self.setup_font_options()
+
         # Set up drag and drop for the main window
         self.root.drop_target_register(tkdnd.DND_FILES)
         self.root.dnd_bind('<<Drop>>', self.on_drop)
 
         # Setup selection bindings for text selection in the PDF
         self.setup_selection_bindings()
+
+    def setup_font_options(self):
+        """
+        Sets up the font selection options in the toolbar.
+        """
+        # Get a list of available fonts
+        self.available_fonts = sorted(tkfont.families())
+        
+        # Create variables to store the selected font and size
+        self.font_var = tk.StringVar(self.root)
+        self.font_var.set("TkDefaultFont")  # Set default font
+        self.font_size_var = tk.StringVar(self.root)
+        self.font_size_var.set("10")  # Set default font size
+        
+        # Create font selection dropdown
+        self.font_menu = ttk.Combobox(self.toolbar, textvariable=self.font_var, values=self.available_fonts, width=15)
+        self.font_menu.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # Create font size dropdown
+        font_sizes = [str(i) for i in range(8, 25)]
+        self.font_size_menu = ttk.Combobox(self.toolbar, textvariable=self.font_size_var, values=font_sizes, width=3)
+        self.font_size_menu.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # Bind the selection events to the change_font method
+        self.font_menu.bind("<<ComboboxSelected>>", self.change_font)
+        self.font_size_menu.bind("<<ComboboxSelected>>", self.change_font)
+
+    def change_font(self, *args):
+        """
+        Changes the font of the chat history.
+        """
+        selected_font = self.font_var.get()
+        selected_size = int(self.font_size_var.get())
+        new_font = tkfont.Font(family=selected_font, size=selected_size)
+        self.chat_history.configure(font=new_font)
 
     def setup_selection_bindings(self):
         """
@@ -712,23 +750,6 @@ class PDFStudyAssistant:
         if self.current_pdf and self.current_page < len(self.current_pdf) - 1:
             self.current_page += 1
             self.display_page()
-
-    def change_font(self, *args):
-        """
-        Changes the font of the chat history.
-
-        This method is called when the user selects a new font or font size
-        from the dropdown menus. It updates the font of the chat history
-        accordingly.
-
-        Parameters:
-        - *args: Variable length argument list (not used)
-        """
-        # Change font of chat history
-        selected_font = self.font_var.get()
-        selected_size = self.font_size_var.get()
-        new_font = font.Font(family=selected_font, size=selected_size)
-        self.chat_history.configure(font=new_font)
 
     def start_ai_thread(self):
         """
