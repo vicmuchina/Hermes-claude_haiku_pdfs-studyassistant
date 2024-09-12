@@ -323,6 +323,25 @@ class PDFStudyAssistant:
         self.toggle_ai_button = ttk.Button(self.toolbar, text="Toggle AI", command=self.toggle_ai_panel)
         self.toggle_ai_button.pack(side=tk.RIGHT, padx=5, pady=5)
 
+        # ... (existing code)
+
+        # Add page navigation to the toolbar
+        self.page_nav_frame = ttk.Frame(self.toolbar)
+        self.page_nav_frame.pack(side=tk.LEFT, padx=5, pady=5)
+
+        self.current_page_var = tk.StringVar()
+        self.current_page_var.set(f"{self.current_page + 1}")
+        self.total_pages_var = tk.StringVar()
+        self.total_pages_var.set(f"/ {len(self.current_pdf)}" if self.current_pdf else "/ 0")
+
+        self.page_entry = ttk.Entry(self.page_nav_frame, textvariable=self.current_page_var, width=5)
+        self.page_entry.pack(side=tk.LEFT)
+        self.page_entry.bind('<Return>', self.go_to_page)
+
+        self.total_pages_label = ttk.Label(self.page_nav_frame, textvariable=self.total_pages_var)
+        self.total_pages_label.pack(side=tk.LEFT)
+
+
         # Add font selection options
         self.setup_font_options()
 
@@ -332,6 +351,18 @@ class PDFStudyAssistant:
 
         # Setup selection bindings for text selection in the PDF
         self.setup_selection_bindings()
+
+    def go_to_page(self, event=None):
+        try:
+            page_num = int(self.current_page_var.get()) - 1  # Convert to 0-based index
+            if 0 <= page_num < len(self.current_pdf):
+                self.current_page = page_num
+                self.display_page()
+            else:
+                messagebox.showwarning("Invalid Page", "Please enter a valid page number.")
+        except ValueError:
+            messagebox.showwarning("Invalid Input", "Please enter a valid number.")
+
 
     def setup_font_options(self):
         """
@@ -563,11 +594,19 @@ class PDFStudyAssistant:
             self.current_page = 0
             self.page_cache = {}
             self.setup_main_ui()
+            self.update_total_pages()
             self.display_page()
             self.submit_pdf_button.config(state=tk.NORMAL)
             messagebox.showinfo("Success", "PDF loaded successfully!")
         except Exception as e:
             messagebox.showerror("Error", f"Error loading PDF: {str(e)}")
+        
+    
+    def update_total_pages(self):
+        if self.current_pdf:
+            self.total_pages_var.set(f"/ {len(self.current_pdf)}")
+
+
 
     def get_adjusted_coords(self, x, y):
         """
@@ -635,6 +674,12 @@ class PDFStudyAssistant:
 
             # Update the line numbers displayed alongside the PDF
             self.update_line_numbers()
+
+            # Update the current page number in the entry widget
+            self.current_page_var.set(str(self.current_page + 1))
+
+            # Update the total pages (in case it has changed)
+            self.total_pages_var.set(f"/ {len(self.current_pdf)}")
 
     def update_line_numbers(self):
         """
@@ -1098,6 +1143,7 @@ class PDFStudyAssistant:
         except Exception as e:
             print(f"Error converting image to LaTeX: {str(e)}")
             return None
+
 
 
 
