@@ -175,8 +175,8 @@ class PDFStudyAssistant:
         self.page_cache = {}  # (A dictionary to store rendered pages for quick access)
         
         # Set up the initial UI and AI processing queue
-        self.setup_initial_ui()
         self.ai_queue = queue.Queue()  # (A thread-safe data structure for communication between threads)
+        self.setup_initial_ui()
         self.start_ai_thread()
 
     def setup_initial_ui(self):
@@ -255,9 +255,19 @@ class PDFStudyAssistant:
 
         # Add a scrollbar for the PDF canvas
         # ttk.Scrollbar creates a themed scrollbar widget
-        self.pdf_scrollbar = ttk.Scrollbar(self.left_panel, orient="vertical", command=self.pdf_canvas.yview)
-        self.pdf_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.pdf_canvas.configure(yscrollcommand=self.pdf_scrollbar.set)  # Connects the scrollbar to the PDF canvas
+        # Add scrollbars
+        v_scrollbar = ttk.Scrollbar(self.left_panel, orient=tk.VERTICAL, command=self.pdf_canvas.yview)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        h_scrollbar = ttk.Scrollbar(self.left_panel, orient=tk.HORIZONTAL, command=self.pdf_canvas.xview)
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.pdf_canvas.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+
+        # Bind mouse wheel event to the canvas
+        self.pdf_canvas.bind("<MouseWheel>", self.on_mousewheel)  # For Windows and MacOS
+        self.pdf_canvas.bind("<Button-4>", self.on_mousewheel)    # For Linux
+        self.pdf_canvas.bind("<Button-5>", self.on_mousewheel)    # For Linux
+
 
         # Set up the right panel for AI chat
         self.right_panel = ttk.Frame(self.paned_window)
@@ -851,7 +861,7 @@ class PDFStudyAssistant:
                 error_message = f"Error in DuckDuckGo chat: {str(e)}"
                 self.update_chat_history(f"Error: {error_message}\n")
 
-                
+
         elif user_message.startswith("/search "):
             query = user_message[8:]  # Remove "/search " from the beginning
             search_results = self.perform_web_search(query)
@@ -937,6 +947,29 @@ class PDFStudyAssistant:
         if self.current_pdf and self.current_page < len(self.current_pdf) - 1:
             self.current_page += 1
             self.display_page()
+
+    def on_mousewheel(self, event):
+        """
+        Handles mouse wheel scrolling on the PDF canvas.
+
+        This method is called when the user scrolls the mouse wheel over the PDF canvas.
+        It adjusts the view of the canvas based on the scroll direction.
+
+        Parameters:
+        - event (tk.Event): The mouse wheel event
+        """
+        # Determine the scroll direction and amount
+        if event.delta:
+            scroll_direction = -1 if event.delta > 0 else 1
+        elif event.num == 4:
+            scroll_direction = -1
+        elif event.num == 5:
+            scroll_direction = 1
+        else:
+            return
+
+        # Scroll the canvas
+        self.pdf_canvas.yview_scroll(scroll_direction, "units")
 
     def start_ai_thread(self):
         """
