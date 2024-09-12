@@ -844,7 +844,14 @@ class PDFStudyAssistant:
         
         if user_message.startswith("/chat "):
             query = user_message[6:]  # Remove "/chat " from the beginning
-            self.ai_queue.put(("chat", query))
+            try:
+                response = self.ddgs.chat(query, model=self.chat_model)
+                self.update_chat_history(f"DuckDuckGo AI: {response}\n")
+            except Exception as e:
+                error_message = f"Error in DuckDuckGo chat: {str(e)}"
+                self.update_chat_history(f"Error: {error_message}\n")
+
+                
         elif user_message.startswith("/search "):
             query = user_message[8:]  # Remove "/search " from the beginning
             search_results = self.perform_web_search(query)
