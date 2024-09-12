@@ -781,9 +781,9 @@ class PDFStudyAssistant:
         """
         Submits the entire PDF content to the AI for analysis.
 
-        This method is called when the user clicks the "Submit PDF to AI"
-        button. It extracts the text from all pages of the PDF and submits
-        it to the AI for analysis.
+        This method extracts text from the current page and the last two pages (if available)
+        of the PDF and submits it to the AI for analysis. It uses OCR for scanned or
+        photographed pages.
         """
         if self.current_pdf:
             total_pages = len(self.current_pdf)
@@ -805,7 +805,20 @@ class PDFStudyAssistant:
             full_text = ""
             for page_num in pages_to_submit:
                 page = self.current_pdf[page_num]
-                full_text += f"Page {page_num + 1}:\n{page.get_text()}\n\n"
+                
+                # Try to get text using PyMuPDF
+                page_text = page.get_text()
+                
+                # If no text is extracted, use OCR
+                if not page_text.strip():
+                    # Convert page to image
+                    pix = page.get_pixmap()
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    
+                    # Perform OCR
+                    page_text = pytesseract.image_to_string(img)
+                
+                full_text += f"Page {page_num + 1}:\n{page_text}\n\n"
 
             # Truncate the text if it's too long
             max_chars = 8000  # Adjust this value as needed
@@ -816,6 +829,7 @@ class PDFStudyAssistant:
             messagebox.showinfo("PDF Submitted", "The content of the current page and the last two pages (if available) has been submitted to the AI for analysis.")
         else:
             messagebox.showerror("Error", "No PDF is currently loaded.")
+
 
     def send_message(self):
         """
@@ -1076,4 +1090,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
